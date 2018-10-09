@@ -40,7 +40,7 @@
 #import "SACommonUtility.h"
 #import "SensorsAnalyticsSDK+Private.h"
 
-#define VERSION @"1.10.15"
+#define VERSION @"9.0.1"
 #define PROPERTY_LENGTH_LIMITATION 8191
 
 // 自动追踪相关事件及属性
