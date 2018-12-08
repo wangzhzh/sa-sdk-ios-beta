@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
 s.name         = "SensorsAnalyticsSDK-Beta"
-s.version      = "1.8.29"
+s.version      = "1.8.30"
 s.summary      = "The offical iOS SDK of Sensors Analytics Beta."
 s.homepage     = "http://www.sensorsdata.cn"
 s.source       = { :git => 'https://github.com/wangzhzh/sa-sdk-ios-beta.git', :tag => "v#{s.version}" }
@@ -8,13 +8,12 @@ s.license = { :type => "Apache License, Version 2.0" }
 s.author = { "Yuhan ZOU" => "zouyuhan@sensorsdata.cn" }
 s.platform = :ios, "7.0"
 s.default_subspec = 'core'
-s.frameworks = 'UIKit', 'Foundation', 'SystemConfiguration', 'CoreTelephony', 'CoreGraphics', 'QuartzCore', 'CoreLocation', 'CoreMotion'
+s.frameworks = 'UIKit', 'Foundation', 'SystemConfiguration', 'CoreTelephony', 'CoreGraphics', 'QuartzCore'
 s.libraries = 'icucore', 'sqlite3', 'z'
 
 s.subspec 'core' do |c|
-c.source_files  = "SensorsAnalyticsSDK", "SensorsAnalyticsSDK/*.{h,m}"
-c.public_header_files = "SensorsAnalyticsSDK/SensorsAnalyticsSDK.h","SensorsAnalyticsSDK/SAAppExtensionDataManager.h"
-c.resource = 'SensorsAnalyticsSDK/SensorsAnalyticsSDK.bundle'
+c.source_files  = "SensorsAnalyticsSDK/SensorsAnalyticsSDK", "SensorsAnalyticsSDK/SensorsAnalyticsSDK/*.{h,m}"
+c.public_header_files = "SensorsAnalyticsSDK/SensorsAnalyticsSDK/SensorsAnalyticsSDK.h"
 end
 
 s.subspec 'IDFA' do |f|
@@ -35,16 +34,6 @@ end
 s.subspec 'DISABLE_CALL_STACK' do |f|
 f.dependency 'SensorsAnalyticsSDK/core'
 f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_CALL_STACK=1'}
-end
-
-s.subspec 'DISABLE_TRACK_GPS' do |f|
-f.dependency 'SensorsAnalyticsSDK/core'
-f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_TRACK_GPS=1'}
-end
-
-s.subspec 'DISABLE_TRACK_DEVICE_ORIENTATION' do |f|
-f.dependency 'SensorsAnalyticsSDK/core'
-f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_TRACK_DEVICE_ORIENTATION=1'}
 end
 
 s.subspec 'DISABLE_DEBUG_WARNING' do |f|
@@ -87,11 +76,6 @@ f.dependency 'SensorsAnalyticsSDK/core'
 f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_AUTOTRACK_UIIMAGE_IMAGENAME=1'}
 end
 
-s.subspec 'DISABLE_AUTOTRACK_GESTURE' do |f|
-f.dependency 'SensorsAnalyticsSDK/core'
-f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_AUTOTRACK_GESTURE=1'}
-end
-
 s.subspec 'ENABLE_REACT_NATIVE_APPCLICK' do |f|
 f.dependency 'SensorsAnalyticsSDK/core'
 f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_REACT_NATIVE=1'}
@@ -106,15 +90,4 @@ s.subspec 'DISABLE_AUTOTRACK_UITABBAR' do |f|
 f.dependency 'SensorsAnalyticsSDK/core'
 f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_AUTOTRACK_UITABBAR=1'}
 end
-
-s.subspec 'CRASH_SLIDEADDRESS' do |f|
-f.dependency 'SensorsAnalyticsSDK/core'
-f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_CRASH_SLIDEADDRESS=1'}
-end
-
-s.subspec 'DISABLE_AUTOTRACK_DEVICEID' do |f|
-f.dependency 'SensorsAnalyticsSDK/core'
-f.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'SENSORS_ANALYTICS_DISABLE_AUTOTRACK_DEVICEID=1'}
-end
-
 end
