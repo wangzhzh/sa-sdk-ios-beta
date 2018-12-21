@@ -35,7 +35,7 @@
 #import "SensorsAnalyticsExceptionHandler.h"
 #import "SAServerUrl.h"
 #import "SAAppExtensionDataManager.h"
-#define VERSION @"1.8.27"
+#define VERSION @"1.8.28"
 
 #define PROPERTY_LENGTH_LIMITATION 8191
 
@@ -143,8 +143,6 @@ NSString* const SCREEN_REFERRER_URL_PROPERTY = @"$referrer";
 @property (atomic, copy) NSString *loginId;
 @property (atomic, copy) NSString *firstDay;
 @property (nonatomic, strong) dispatch_queue_t serialQueue;
-@property (nonatomic, strong) dispatch_queue_t databaseMessageQueue;
-@property(nonatomic, strong) dispatch_semaphore_t appEndFlushSemaphore;
 
 @property (atomic, strong) NSDictionary *automaticProperties;
 @property (atomic, strong) NSDictionary *superProperties;
@@ -408,19 +406,10 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
         
         self.safariRequestInProgress = NO;
 
-        NSString *label = [NSString stringWithFormat:@"com.sensorsdata.%@.%p", @"test", self];
-        self.serialQueue = dispatch_queue_create([label UTF8String], DISPATCH_QUEUE_SERIAL);
-            
-        NSString *dataBaseLabel = [NSString stringWithFormat:@"com.sensorsdata.databaseMessageQueue.%p", self];
-        self.databaseMessageQueue = dispatch_queue_create([dataBaseLabel UTF8String], DISPATCH_QUEUE_SERIAL);
-            
-            dispatch_async(self.databaseMessageQueue, ^{
-                self.messageQueue = [[MessageQueueBySqlite alloc] initWithFilePath:[self filePathForData:@"message-v2"]];
-                if (self.messageQueue == nil) {
-                    SADebug(@"SqliteException: init Message Queue in Sqlite fail");
-                }
-            });
-    
+        self.messageQueue = [[MessageQueueBySqlite alloc] initWithFilePath:[self filePathForData:@"message-v2"]];
+        if (self.messageQueue == nil) {
+            SADebug(@"SqliteException: init Message Queue in Sqlite fail");
+        }
 
         // 取上一次进程退出时保存的distinctId、loginId、superProperties和eventBindings
         [self unarchive];
@@ -437,7 +426,10 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
         
         NSString *namePattern = @"^((?!^distinct_id$|^original_id$|^time$|^event$|^properties$|^id$|^first_id$|^second_id$|^users$|^events$|^event$|^user_id$|^date$|^datetime$)[a-zA-Z_$][a-zA-Z\\d_$]{0,99})$";
         self.regexTestName = [NSPredicate predicateWithFormat:@"SELF MATCHES[c] %@", namePattern];
-            
+        
+        NSString *label = [NSString stringWithFormat:@"com.sensorsdata.%@.%p", @"test", self];
+        self.serialQueue = dispatch_queue_create([label UTF8String], DISPATCH_QUEUE_SERIAL);
+        
         [self setUpListeners];
         
         // 渠道追踪请求，需要从 UserAgent 中解析 OS 信息用于模糊匹配
@@ -1179,10 +1171,7 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
 
 - (void)flushByType:(NSString *)type withSize:(int)flushSize andFlushMethod:(BOOL (^)(NSArray *, NSString *))flushMethod {
     while (true) {
-        __block NSArray *recordArray = nil;
-        dispatch_sync(self.databaseMessageQueue, ^{
-            recordArray = [self.messageQueue getFirstRecords:flushSize withType:type];
-        });
+        NSArray *recordArray = [self.messageQueue getFirstRecords:flushSize withType:type];
         if (recordArray == nil) {
             SAError(@"Failed to get records from SQLite.");
             break;
@@ -1192,12 +1181,7 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
             break;
         }
         
-        __block BOOL removeSucceed = NO;
-        dispatch_sync(self.databaseMessageQueue, ^{
-            removeSucceed = [self.messageQueue removeFirstRecords:recordArray.count withType:type];
-        });
-        
-        if (!removeSucceed) {
+        if (![self.messageQueue removeFirstRecords:flushSize withType:type]) {
             SAError(@"Failed to remove records from SQLite.");
             break;
         }
@@ -1251,7 +1235,7 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
         
         dispatch_semaphore_t flushSem = dispatch_semaphore_create(0);
         __block BOOL flushSucc = YES;
-        
+    
         void (^block)(NSData*, NSURLResponse*, NSError*) = ^(NSData *data, NSURLResponse *response, NSError *error) {
             if (error || ![response isKindOfClass:[NSHTTPURLResponse class]]) {
                 SAError(@"%@", [NSString stringWithFormat:@"%@ network failure: %@", self, error ? error : @"Unknown error"]);
@@ -1307,18 +1291,11 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
             dispatch_semaphore_signal(flushSem);
         };
         
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 70000
         NSURLSession *session = [NSURLSession sharedSession];
         NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:block];
         
         [task resume];
-#else
-        [NSURLConnection sendAsynchronousRequest:request queue:[NSOperationQueue mainQueue] completionHandler:
-         ^(NSURLResponse *response, NSData* data, NSError *error) {
-             return block(data, response, error);
-        }];
-#endif
-        
+
         dispatch_semaphore_wait(flushSem, DISPATCH_TIME_FOREVER);
         
         return flushSucc;
@@ -1327,11 +1304,9 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
     [self flushByType:@"Post" withSize:(_debugMode == SensorsAnalyticsDebugOff ? 50 : 1) andFlushMethod:flushByPost];
     
     if (vacuumAfterFlushing) {
-        dispatch_async(self.databaseMessageQueue, ^{
-            if (![self.messageQueue vacuum]) {
-                SAError(@"failed to VACUUM SQLite.");
-            }
-        });
+        if (![self.messageQueue vacuum]) {
+            SAError(@"failed to VACUUM SQLite.");
+        }
     }
     
     SADebug(@"events flushed.");
@@ -1404,14 +1379,7 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
         [event setObject:libProperties forKey:@"lib"];
     }
     
-    dispatch_async(self.databaseMessageQueue, ^{
-        [self.messageQueue addObejct:event withType:@"Post"];
-        
-        if ([event.allValues containsObject:APP_END_EVENT] && self.appEndFlushSemaphore) {
-            dispatch_semaphore_signal(self.appEndFlushSemaphore);
-        }
-    });
-   
+    [self.messageQueue addObejct:event withType:@"Post"];
 }
 
 - (void)track:(NSString *)event withProperties:(NSDictionary *)propertieDict withType:(NSString *)type {
@@ -1630,11 +1598,7 @@ static SensorsAnalyticsSDK *sharedInstance = nil;
             [self flush];
         } else {
             // 否则，在满足发送条件时，发送事件
-            __block NSInteger messageCount = 0;
-            dispatch_sync(self.databaseMessageQueue, ^{
-                messageCount = [self.messageQueue count];
-            });
-            if ([type isEqualToString:@"track_signup"] || messageCount >= self.flushBulkSize) {
+            if ([type isEqualToString:@"track_signup"] || [[self messageQueue] count] >= self.flushBulkSize) {
                 [self flush];
             }
         }
@@ -2995,6 +2959,18 @@ static void sa_imp_setJSResponderBlockNativeResponder(id obj, SEL cmd, id reactT
     SADebug(@"%@ application did enter background", self);
     _applicationWillResignActive = NO;
     
+    UIApplication *application = UIApplication.sharedApplication;
+    __block UIBackgroundTaskIdentifier backgroundTaskIdentifier = UIBackgroundTaskInvalid;
+    // 结束后台任务
+    void (^endBackgroundTask)(void) = ^(){
+        [application endBackgroundTask:backgroundTaskIdentifier];
+        backgroundTaskIdentifier = UIBackgroundTaskInvalid;
+    };
+    
+    backgroundTaskIdentifier = [application beginBackgroundTaskWithExpirationHandler:^{
+        endBackgroundTask();
+    }];
+    
     // 遍历trackTimer
     // eventAccumulatedDuration = eventAccumulatedDuration + timeStamp - eventBegin
     dispatch_async(self.serialQueue, ^{
@@ -3033,16 +3009,25 @@ static void sa_imp_setJSResponderBlockNativeResponder(id obj, SEL cmd, id reactT
             if (_clearReferrerWhenAppEnd) {
                 _referrerScreenUrl = nil;
             }
-            
-            self.appEndFlushSemaphore = dispatch_semaphore_create(0);
             [self track:APP_END_EVENT];
-            dispatch_semaphore_wait(self.appEndFlushSemaphore,  dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC));
-            self.appEndFlushSemaphore = nil;
         }
     }
     
     if (self.flushBeforeEnterBackground) {
+        dispatch_async(self.serialQueue, ^{
+
             [self _flush:YES];
+            
+            if (backgroundTaskIdentifier) {
+                endBackgroundTask();
+            }
+        });
+    }else {
+        dispatch_async(self.serialQueue, ^{
+            if (backgroundTaskIdentifier) {
+                endBackgroundTask();
+            }
+        });
     }
     
     if ([self.abtestDesignerConnection isKindOfClass:[SADesignerConnection class]]
